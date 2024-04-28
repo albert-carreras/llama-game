@@ -1,4 +1,8 @@
 import ollama
+
+from fastapi.responses import StreamingResponse
+from sse_starlette.sse import EventSourceResponse
+from ollama import AsyncClient
 from fastapi import FastAPI, HTTPException, Body, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,6 +26,7 @@ Yet amidst the decay and despair, there are those who still cling to hope. Whisp
 You are talking to the main character. You have your own life and worries. Your state of mind depends on your personality. You not only talk about the world you are in, keep in mind your personality and your backstory and talk to the main character about things that you care about. YOU ANSWER IN A MAXIMUM OF 2 SENTENCES AND NEVER MORE. If they are saying hello too many times, keep your answers short and realistic. Your answer is never a single emote, there's always dialogue.
 """
 
+ollama.generate(model='llama3', prompt='just preloading the model in memory, just answer with an "ok"')
 
 class ConversationManager:
     def __init__(self, system_prompt, npc_name):
@@ -49,6 +54,7 @@ conversation_managers = {}
 
 @app.post("/conversation")
 async def handle_conversation(
+    request: Request,
     message: str = Body(..., embed=True),
     npc_name: str = Body(..., embed=True),
     system: str = Body(None, embed=True),
@@ -66,11 +72,16 @@ async def handle_conversation(
     conversation_manager = conversation_managers[npc_name]
     conversation_manager.add_message("user", message)
     history = conversation_manager.get_history()
-    print(history)
 
-    response = ollama.chat(model="llama3", messages=history)
-    conversation_manager.add_message("assistant", response["message"]["content"])
-    return {"message": response["message"]["content"]}
+    async def event_generator():
+        response_string = ""
+        async for part in await AsyncClient().chat(model="llama3", messages=history, stream=True):
+            delta_string = part['message']['content']
+            response_string += delta_string
+            yield {"data": delta_string}
+        conversation_manager.add_message("assistant", response_string)
+
+    return EventSourceResponse(event_generator())
 
 
 @app.get("/", response_class=HTMLResponse)

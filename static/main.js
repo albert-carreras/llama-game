@@ -24,7 +24,7 @@ class MyGame extends Phaser.Scene {
 
         this.player = this.physics.add.sprite(460, 340, 'idle', 0).setInteractive();
         this.player.scale = 2.5;
-        this.physics.world.setBounds(0, 0, 1600, 1600);
+        this.physics.world.setBounds(0, 0, 1600, 1200);
         this.player.setCollideWorldBounds(true);
 
         this.createAnimations();
@@ -180,6 +180,7 @@ class MyGame extends Phaser.Scene {
     async startConversation(npc) {
         this.activeNPC = npc;
         this.dialogueText = this.createDialogueText(npc.npcName);
+
         try {
             const response = await fetch('http://0.0.0.0:8000/conversation', {
                 method: 'POST',
@@ -193,31 +194,39 @@ class MyGame extends Phaser.Scene {
                 })
             });
 
-            const data = await response.json();
-            this.updateDialogueText(data.message);
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let responseText = '';
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value);
+                responseText += chunk;
+                let lines = responseText.split('\n');
+
+                if (!responseText.endsWith('\n')) {
+                    responseText = lines.pop();
+                } else {
+                    responseText = '';
+                }
+
+                for (const line of lines) {
+                    if (line.startsWith('data:')) {
+                        const data = line.substring(6).trimEnd();
+                        if (data !== '') {
+                            this.updateDialogueText(data);
+                        }
+                    }
+                }
+            }
         } catch (error) {
             console.error('Error:', error);
             this.stopConversation();
         }
 
         this.input.keyboard.on('keydown-SPACE', this.handleDialogueInput, this);
-    }
-
-
-    createDialogueText() {
-        const dialogueText = this.add.text(0, 0, `${this.activeNPC.npcName.charAt(0).toUpperCase()}${this.activeNPC.npcName.slice(1)}: ...`, {
-            font: '18px Arial',
-            fill: '#ffffff',
-            wordWrap: { width: 600, useAdvancedWrap: true }
-        });
-        dialogueText.setOrigin(0.5);
-        dialogueText.setBackgroundColor('#222');
-        dialogueText.setFixedSize(760, 160);
-        dialogueText.setPadding(40, 20, 40, 20);
-        dialogueText.setScrollFactor(0);
-        dialogueText.setPosition(this.cameras.main.centerX, this.cameras.main.height - 80);
-
-        return dialogueText;
     }
 
     async handleDialogueInput() {
@@ -238,9 +247,34 @@ class MyGame extends Phaser.Scene {
                             npc_name: this.activeNPC.npcName
                         })
                     });
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder('utf-8');
+                    let responseText = '';
+                    this.dialogueText.text = '';
 
-                    const data = await response.json();
-                    this.updateDialogueText(data.message);
+                    while (true) {
+                        const { value, done } = await reader.read();
+                        if (done) break;
+
+                        const chunk = decoder.decode(value);
+                        responseText += chunk;
+                        let lines = responseText.split('\n');
+
+                        if (!responseText.endsWith('\n')) {
+                            responseText = lines.pop();
+                        } else {
+                            responseText = '';
+                        }
+
+                        for (const line of lines) {
+                            if (line.startsWith('data:')) {
+                                const data = line.substring(6).trimEnd();
+                                if (data !== '') {
+                                    this.updateDialogueText(data);
+                                }
+                            }
+                        }
+                    }
                 } catch (error) {
                     console.error('Error:', error);
                     this.stopConversation();
@@ -251,9 +285,31 @@ class MyGame extends Phaser.Scene {
         }
     }
 
+
+    createDialogueText() {
+        const dialogueText = this.add.text(0, 0, `${this.activeNPC.npcName.charAt(0).toUpperCase()}${this.activeNPC.npcName.slice(1)}: `, {
+            font: '18px Arial',
+            fill: '#ffffff',
+            wordWrap: { width: 600, useAdvancedWrap: true }
+        });
+        dialogueText.setOrigin(0.5);
+        dialogueText.setBackgroundColor('#222');
+        dialogueText.setFixedSize(760, 160);
+        dialogueText.setPadding(40, 20, 40, 20);
+        dialogueText.setScrollFactor(0);
+        dialogueText.setPosition(this.cameras.main.centerX, this.cameras.main.height - 80);
+
+        return dialogueText;
+    }
+
     updateDialogueText(text) {
         if (this.dialogueText && this.activeNPC) {
-            this.dialogueText.setText(`${this.activeNPC.npcName.charAt(0).toUpperCase()}${this.activeNPC.npcName.slice(1)}: ${text}\n\n\nPress Space to answer or Escape to leave...`);
+            const name = `${this.activeNPC.npcName.charAt(0).toUpperCase()}${this.activeNPC.npcName.slice(1)}: `;
+            const continueString = "\n\n\nPress Space to answer or Escape to leave..."
+            const currentText = this.dialogueText.text;
+            const updatedText = currentText.replace(continueString, '').replace(name, '');
+            const newText = `${name}${updatedText}${text}${continueString}`;
+            this.dialogueText.setText(newText);
         }
     }
 
