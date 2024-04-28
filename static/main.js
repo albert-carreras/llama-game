@@ -6,8 +6,9 @@ class MyGame extends Phaser.Scene {
         this.dialogueText = null;
         this.gameControls = null;
         this.activeNPC = null;
-        this.murdered = false;
+        this.angered = [];
         this.lastDirection = 'down';
+        this.startTimeout = false;
     }
 
     preload() {
@@ -126,6 +127,9 @@ class MyGame extends Phaser.Scene {
         if (event.code === 'Escape' && this.dialogueText && this.activeNPC) {
             this.stopConversation();
         }
+        if (event.key === "p") {
+            console.log(this.angered)
+        }
     }
 
     update() {
@@ -178,12 +182,74 @@ class MyGame extends Phaser.Scene {
         }
     }
 
+    async parseAnswer(response) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let responseText = '';
+        let parsedMurder = false;
+        let previousToken = '';
+        let running = true;
+        while (running) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value);
+            responseText += chunk;
+            let lines = responseText.split('\n');
+
+            if (!responseText.endsWith('\n')) {
+                responseText = lines.pop();
+            } else {
+                responseText = '';
+            }
+
+            for (const line of lines) {
+                if (line.startsWith('data:')) {
+                    const prev = previousToken
+                    const data = line.substring(6).trimEnd();
+                    previousToken = data
+                    if (data.includes('}')) {
+                        parsedMurder = true
+                        if (prev.includes('true')) {
+                            this.angered.push(this.activeNPC.npcName)
+                            this.handleAngered()
+                            running = false
+                            break;
+                        }
+                    } else if (data !== '' && parsedMurder) {
+                        this.updateDialogueText(data);
+                    }
+                }
+            }
+        }
+        if (parsedMurder === false) {
+            this.angered.push(this.activeNPC.npcName)
+            this.handleAngered()
+        }
+    }
+
+    handleAngered() {
+        this.dialogueText.text = ''
+        this.updateDialogueText(`You've angered: ${this.angered.concat()}\n\n${this.angered.length}/10`, true);
+        this.input.keyboard.on('keydown-SPACE', this.stopConversation, this);
+        this.input.keyboard.removeListener('keydown-SPACE', this.handleDialogueInput);
+        this.startTimeout = true
+        setTimeout(() => this.startTimeout = false, 2000)
+    }
+
     async startConversation(npc) {
+        if (this.startTimeout) {
+            return 
+        }
         this.activeNPC = npc;
         this.dialogueText = this.createDialogueText(npc.npcName);
-
+        if (this.angered.includes(npc.npcName)) {
+            this.handleAngered()
+            return;
+        }
+        this.disableGameControls()
         try {
-            const response = await fetch('http://0.0.0.0:8000/conversation', {
+            const response = await fetch('http://localhost:8000/conversation', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -195,38 +261,16 @@ class MyGame extends Phaser.Scene {
                 })
             });
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder('utf-8');
-            let responseText = '';
+            await this.parseAnswer(response)
 
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value);
-                responseText += chunk;
-                let lines = responseText.split('\n');
-
-                if (!responseText.endsWith('\n')) {
-                    responseText = lines.pop();
-                } else {
-                    responseText = '';
-                }
-
-                for (const line of lines) {
-                    if (line.startsWith('data:')) {
-                        const data = line.substring(6).trimEnd();
-                        if (data !== '') {
-                            this.updateDialogueText(data);
-                        }
-                    }
-                }
-            }
         } catch (error) {
             console.error('Error:', error);
             this.stopConversation();
+        } finally {
+            this.enableGameControls()
         }
 
+        this.input.keyboard.removeListener('keydown-SPACE', this.stopConversation);
         this.input.keyboard.on('keydown-SPACE', this.handleDialogueInput, this);
     }
 
@@ -238,7 +282,7 @@ class MyGame extends Phaser.Scene {
 
             if (inputText !== null && inputText.trim() !== '') {
                 try {
-                    const response = await fetch('http://0.0.0.0:8000/conversation', {
+                    const response = await fetch('http://localhost:8000/conversation', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
@@ -248,34 +292,8 @@ class MyGame extends Phaser.Scene {
                             npc_name: this.activeNPC.npcName
                         })
                     });
-                    const reader = response.body.getReader();
-                    const decoder = new TextDecoder('utf-8');
-                    let responseText = '';
                     this.dialogueText.text = '';
-
-                    while (true) {
-                        const { value, done } = await reader.read();
-                        if (done) break;
-
-                        const chunk = decoder.decode(value);
-                        responseText += chunk;
-                        let lines = responseText.split('\n');
-
-                        if (!responseText.endsWith('\n')) {
-                            responseText = lines.pop();
-                        } else {
-                            responseText = '';
-                        }
-
-                        for (const line of lines) {
-                            if (line.startsWith('data:')) {
-                                const data = line.substring(6).trimEnd();
-                                if (data !== '') {
-                                    this.updateDialogueText(data);
-                                }
-                            }
-                        }
-                    }
+                    await this.parseAnswer(response)
                 } catch (error) {
                     console.error('Error:', error);
                     this.stopConversation();
@@ -303,12 +321,16 @@ class MyGame extends Phaser.Scene {
         return dialogueText;
     }
 
-    updateDialogueText(text) {
+    updateDialogueText(text, skipName = false) {
         if (this.dialogueText && this.activeNPC) {
             const name = `${this.activeNPC.npcName.charAt(0).toUpperCase()}${this.activeNPC.npcName.slice(1)}: `;
             const continueString = "\n\n\nPress Space to answer or Escape to leave..."
             const currentText = this.dialogueText.text;
             const updatedText = currentText.replace(continueString, '').replace(name, '');
+            if (skipName) {
+                this.dialogueText.setText(text);
+                return
+            }
             const newText = `${name}${updatedText}${text}${continueString}`;
             this.dialogueText.setText(newText);
         }
@@ -345,8 +367,8 @@ class MyGame extends Phaser.Scene {
 const config = {
     type: Phaser.AUTO,
     parent: 'phaser-example',
-    width: 800,
-    height: 600,
+    width: 1000,
+    height: 800,
     scene: MyGame,
     pixelArt: true,
     loader: {
