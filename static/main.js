@@ -6,6 +6,7 @@ class MyGame extends Phaser.Scene {
         this.dialogueText = null;
         this.gameControls = null;
         this.activeNPC = null;
+        this.lastDirection = 'down';
     }
 
     preload() {
@@ -23,11 +24,11 @@ class MyGame extends Phaser.Scene {
 
         this.player = this.physics.add.sprite(460, 340, 'idle', 0).setInteractive();
         this.player.scale = 2.5;
-        this.physics.world.setBounds(0, 0, 800, 600);
+        this.physics.world.setBounds(0, 0, 1600, 1600);
         this.player.setCollideWorldBounds(true);
 
         this.createAnimations();
-        this.player.anims.play('idle');
+        this.player.anims.play('idle-down');
 
         this.createNPCs();
         this.cameras.main.startFollow(this.player, true);
@@ -45,9 +46,28 @@ class MyGame extends Phaser.Scene {
     }
 
     createAnimations() {
+
         this.anims.create({
-            key: 'idle',
-            frames: this.anims.generateFrameNumbers('idle', { start: 0, end: 23 }),
+            key: 'idle-up',
+            frames: this.anims.generateFrameNumbers('idle', { start: 6, end: 11 }),
+            frameRate: 4,
+            repeat: -1
+        });
+        this.anims.create({
+            key: 'idle-down',
+            frames: this.anims.generateFrameNumbers('idle', { start: 18, end: 23 }),
+            frameRate: 4,
+            repeat: -1
+        });
+        this.anims.create({
+            key: 'idle-left',
+            frames: this.anims.generateFrameNumbers('idle', { start: 12, end: 17 }),
+            frameRate: 4,
+            repeat: -1
+        });
+        this.anims.create({
+            key: 'idle-right',
+            frames: this.anims.generateFrameNumbers('idle', { start: 0, end: 5 }),
             frameRate: 4,
             repeat: -1
         });
@@ -79,20 +99,20 @@ class MyGame extends Phaser.Scene {
     }
 
     createNPCs() {
-        characterNames.forEach((npc) => {
-            const randomX = Math.floor(Math.random() * 700) + 50;
-            const randomY = Math.floor(Math.random() * 500) + 50;
+        const spacing = 200;
+        const offsetX = 100;
+        const offsetY = 100;
+        const randomOffsetRange = 100;
+
+        characterNames.forEach((npc, index) => {
+            const x = (index % 5) * spacing + offsetX + Math.random() * randomOffsetRange - randomOffsetRange / 2;
+            const y = Math.floor(index / 5) * spacing + offsetY + Math.random() * randomOffsetRange - randomOffsetRange / 2;
             const randomFrame = Math.floor(Math.random() * 4) * 3;
-            const sprite = this.physics.add.sprite(
-                randomX,
-                randomY,
-                npc,
-                randomFrame)
-                .setInteractive();
+            const sprite = this.physics.add.sprite(x, y, npc, randomFrame).setInteractive();
             sprite.npcName = npc;
             sprite.scale = 2;
             this.physics.add.overlap(this.player, sprite, this.handleOverlap, null, this);
-        })
+        });
     }
 
     handleOverlap(player, npc) {
@@ -132,14 +152,18 @@ class MyGame extends Phaser.Scene {
     updatePlayerAnimation() {
         if (this.gameControls.left.isDown) {
             this.player.anims.play('walk-left', true);
+            this.lastDirection = 'left';
         } else if (this.gameControls.right.isDown) {
             this.player.anims.play('walk-right', true);
+            this.lastDirection = 'right';
         } else if (this.gameControls.up.isDown) {
             this.player.anims.play('walk-up', true);
+            this.lastDirection = 'up';
         } else if (this.gameControls.down.isDown) {
             this.player.anims.play('walk-down', true);
+            this.lastDirection = 'down';
         } else {
-            this.player.anims.play('idle', true);
+            this.player.anims.play(`idle-${this.lastDirection}`, true);
         }
     }
 
