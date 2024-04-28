@@ -6,6 +6,7 @@ class MyGame extends Phaser.Scene {
         this.dialogueText = null;
         this.gameControls = null;
         this.activeNPC = null;
+        this.murdered = false;
         this.lastDirection = 'down';
     }
 
